@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Game Backlog App
 
 A full-stack, self-hostable game backlog tracker built with **Next.js**, **TypeScript**, **Prisma**, **PostgreSQL/Supabase**, **Auth.js**, **Tailwind CSS**, and **shadcn/ui**.
@@ -74,3 +75,6 @@ styles/ # globals.css + theme tokens
 public/ # static assets & placeholders
 config/ # site config, navigation, feature flags
 types/ # TypeScript types
+=======
+# Game-Backlog
+>>>>>>> bb1281bcaf3aff91cf6f06b7ed96dec58e4e9a82
