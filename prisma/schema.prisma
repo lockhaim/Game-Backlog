@@ -4,12 +4,163 @@
 // Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
 // Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
 
-generator client {
-  provider = "prisma-client-js"
-  output   = "../src/generated/prisma"
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL") // Transaction pooler (runtime)
+  directUrl = env("DIRECT_URL") // Direct (migrations/Studio)
 }
 
-datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+generator client {
+  provider = "prisma-client-js"
+}
+
+/**
+ * Core user
+ */
+model User {
+  id             String         @id @default(cuid())
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  email          String         @unique
+  name           String?
+  image          String?
+  backlogEntries BacklogEntry[]
+  userTags       UserTag[]
+}
+
+/**
+ * Game data comes from Steam appdetails/appreviews
+ */
+model Game {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  steamAppId Int     @unique
+  title      String
+  slug       String  @unique
+  summary    String?
+
+  headerImageUrl String? // cover/banner
+  heroCapsuleUrl String? // optional larger hero image
+
+  developerName String?
+  publisherName String?
+  releaseDate   DateTime?
+
+  metacriticScore    Int? // from Steam if present
+  steamReviewPercent Int? // 0–100
+  steamReviewCount   Int? // total review count
+  steamReviewLabel   String? // e.g., "Very Positive"
+
+  reviewSnippets ReviewSnippet[]
+  screenshots    Screenshot[]
+  tags           GameTag[]
+  platforms      GamePlatform[]
+  backlogEntries BacklogEntry[]
+}
+
+/**
+ * Screenshot carousel (ordered)
+ */
+model Screenshot {
+  id           String   @id @default(cuid())
+  createdAt    DateTime @default(now())
+  game         Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  gameId       String
+  imageUrl     String
+  thumbnailUrl String?
+  sortIndex    Int      @default(0)
+
+  @@index([gameId, sortIndex])
+}
+
+/**
+ * Optional: small review snippets (can skip if you only want aggregates)
+ */
+model ReviewSnippet {
+  id           String    @id @default(cuid())
+  createdAt    DateTime  @default(now())
+  game         Game      @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  gameId       String
+  language     String? // e.g., "english"
+  votedHelpful Int? // helpful votes
+  reviewText   String // keep short, or truncate upstream
+  timestamp    DateTime?
+}
+
+/**
+ * Taxonomy: tags/genres, platforms
+ */
+model Tag {
+  id    String    @id @default(cuid())
+  name  String    @unique
+  games GameTag[]
+}
+
+model GameTag {
+  id     String @id @default(cuid())
+  game   Game   @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  gameId String
+  tag    Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  tagId  String
+
+  @@unique([gameId, tagId])
+}
+
+model Platform {
+  id    String         @id @default(cuid())
+  name  String         @unique
+  games GamePlatform[]
+}
+
+model GamePlatform {
+  id         String   @id @default(cuid())
+  game       Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  gameId     String
+  platform   Platform @relation(fields: [platformId], references: [id], onDelete: Cascade)
+  platformId String
+
+  @@unique([gameId, platformId])
+}
+
+/**
+ * Your personal backlog row per game
+ */
+model BacklogEntry {
+  id            String        @id @default(cuid())
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId        String
+  game          Game          @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  gameId        String
+  backlogStatus BacklogStatus
+  userRating    Int?
+  userNotes     String?
+  startedAt     DateTime?
+  finishedAt    DateTime?
+  hoursPlayed   Int?
+
+  @@unique([userId, gameId]) // one entry per user per game
+}
+
+/**
+ * Per-user custom tags (for autosuggest or personal labels)
+ */
+model UserTag {
+  id     String @id @default(cuid())
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+  name   String
+
+  @@unique([userId, name])
+}
+
+enum BacklogStatus {
+  WISHLIST
+  PLAYING
+  PAUSED
+  DROPPED
+  FINISHED
 }
