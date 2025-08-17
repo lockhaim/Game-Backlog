@@ -1,0 +1,3 @@
+export const DO_NOT_IMPORT = new Set<number>([
+  // e.g. 1523, ...
+]);

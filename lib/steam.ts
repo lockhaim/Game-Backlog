@@ -1,91 +1,95 @@
 // lib/steam.ts
-/**
- * Lightweight Steam fetch helpers for server-side use.
- * - fetchAppDetails(appId): Steam Store "appdetails" (metadata, images, genres, platforms)
- * - fetchReviewSummary(appId): Steam Store "appreviews" (aggregate review stats)
- *
- * No Steam Web API key is required for these two endpoints.
- */
 
-type AppDetailsEnvelope = {
-  success: boolean;
-  data?: {
-    name?: string;
-    short_description?: string;
-    header_image?: string;
-    capsule_imagev5?: string;
-    screenshots?: { path_thumbnail?: string; path_full?: string }[];
-    developers?: string[];
-    publishers?: string[];
-    release_date?: { date?: string | null; coming_soon?: boolean };
-    metacritic?: { score?: number | null };
-    platforms?: { windows?: boolean; mac?: boolean; linux?: boolean };
-    genres?: { id?: string; description?: string }[];
-    categories?: { id?: string; description?: string }[];
-  };
-};
+// Minimal internal helper
+type AnyObj = Record<string, any>;
 
-type ReviewsSummaryResponse = {
-  success?: number;
-  query_summary?: {
-    review_score_desc?: string;
-    total_reviews?: number;
-    total_positive?: number;
-  };
-};
-
-const APPDETAILS_BASE = "https://store.steampowered.com/api/appdetails";
-const APPREVIEWS_BASE = "https://store.steampowered.com/appreviews";
-
-/** Fetch with timeout helper */
-async function fetchWithTimeout(
-  url: string,
-  opts: RequestInit = {},
-  ms = 12_000
-) {
-  const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), ms);
+async function fetchJson(url: string): Promise<any | null> {
   try {
-    const res = await fetch(url, {
-      ...opts,
-      signal: controller.signal,
-      // Avoid caching at the edge in dev to see updates
-      cache: "no-store",
-      headers: {
-        ...(opts.headers || {}),
-        // Helps some CDNs return English fields (genres/categories)
-        "accept-language": "en",
-      },
-    });
-    return res;
-  } finally {
-    clearTimeout(id);
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
   }
 }
 
-/** Get app details (metadata, images, platforms, genres) from Steam store */
-export async function fetchAppDetails(appId: number) {
-  const url = `${APPDETAILS_BASE}?appids=${appId}&l=en`;
-  const res = await fetchWithTimeout(url);
-  if (!res.ok) {
-    throw new Error(`Steam appdetails HTTP ${res.status}`);
+/**
+ * Fetch Steam appdetails for a single appId.
+ * Returns a flat shape:
+ *   { success: boolean, data: object | null }
+ * Never throws when the app has no data; callers can decide to skip.
+ */
+export async function fetchAppDetails(
+  appId: number
+): Promise<{ success: boolean; data: any | null }> {
+  const url = `https://store.steampowered.com/api/appdetails?appids=${appId}&cc=us&l=en`;
+
+  const json = await fetchJson(url);
+  if (!json || typeof json !== "object") {
+    return { success: false, data: null };
   }
-  const json = (await res.json()) as Record<string, AppDetailsEnvelope>;
-  const envelope = json[String(appId)];
-  if (!envelope || !envelope.success || !envelope.data) {
-    throw new Error(`Steam appdetails returned no data for appId=${appId}`);
+
+  // Typical Steam shape: { "12345": { success: boolean, data?: {...} } }
+  const entry = (json as AnyObj)[String(appId)];
+
+  // A) Envelope entry with { success, data }
+  if (entry && typeof entry === "object" && "success" in entry) {
+    return { success: !!entry.success, data: entry.data ?? null };
   }
-  return envelope.data;
+
+  // B) Some wrappers return a flat { success, data }
+  if ("success" in (json as AnyObj)) {
+    const flat = json as AnyObj;
+    return { success: !!flat.success, data: flat.data ?? null };
+  }
+
+  // C) Some wrappers return the details object directly
+  const maybeDetails = entry ?? json;
+  if (
+    maybeDetails &&
+    typeof maybeDetails === "object" &&
+    (
+      typeof (maybeDetails as AnyObj).name === "string" ||
+      typeof (maybeDetails as AnyObj).short_description === "string" ||
+      (maybeDetails as AnyObj).release_date
+    )
+  ) {
+    return { success: true, data: maybeDetails };
+  }
+
+  // No usable data
+  return { success: false, data: null };
 }
 
-/** Get aggregate review summary from Steam store */
-export async function fetchReviewSummary(appId: number) {
-  const url = `${APPREVIEWS_BASE}/${appId}?json=1&language=all&purchase_type=all`;
-  const res = await fetchWithTimeout(url);
-  if (!res.ok) {
-    // Not fatal—some apps can block this; caller should tolerate nulls
-    return null as ReviewsSummaryResponse | null;
+/**
+ * Fetch a lightweight reviews summary for an app.
+ * Returns the raw Steam response (which typically contains `query_summary`)
+ * or null on failure. Never throws.
+ *
+ * Shape example:
+ * {
+ *   "success": 1,
+ *   "query_summary": {
+ *     "total_reviews": 1234,
+ *     "total_positive": 1000,
+ *     "review_score_desc": "Very Positive",
+ *     ...
+ *   }
+ * }
+ */
+export async function fetchReviewSummary(appId: number): Promise<any | null> {
+  // Request 0 reviews per page to get summary only.
+  const url =
+    `https://store.steampowered.com/appreviews/${appId}` +
+    `?json=1&language=all&purchase_type=all&num_per_page=0&filter=summary`;
+
+  const json = await fetchJson(url);
+  if (!json || typeof json !== "object") return null;
+
+  // Steam returns success: 1 on OK
+  if (typeof (json as AnyObj).success === "number" || typeof (json as AnyObj).success === "boolean") {
+    return json;
   }
-  const json = (await res.json()) as ReviewsSummaryResponse;
-  return json;
+
+  return null;
 }
