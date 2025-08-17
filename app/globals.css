@@ -1,0 +1,7 @@
+/* app/globals.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* optional tweaks */
+:root { color-scheme: light; }
