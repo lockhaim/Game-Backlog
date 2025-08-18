@@ -28,13 +28,16 @@ export type OwnedGame = NonNullable<
  * Requires: a valid Steam Web API key and a public SteamID64.
  */
 export async function fetchOwnedGames(steamId: string, key: string) {
+  const k = (key || "").trim();           // ← trim whitespace/newlines
+  if (!k) throw new Error("Missing Steam Web API key");
+
   const url = new URL(OWNED_BASE);
-  url.searchParams.set("key", key);
-  url.searchParams.set("steamid", steamId);
+  url.searchParams.set("key", k);         // ← use trimmed key
+  url.searchParams.set("steamid", steamId.trim());
   url.searchParams.set("include_appinfo", "true");
   url.searchParams.set("include_played_free_games", "1");
   url.searchParams.set("format", "json");
-
+  
   const res = await fetch(url.toString(), {
     cache: "no-store",
     headers: {
