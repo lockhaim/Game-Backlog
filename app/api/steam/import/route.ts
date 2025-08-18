@@ -12,7 +12,6 @@ import {
   type ReviewsSummary,
 } from "@/lib/normalizers";
 import { fetchAppDetails } from "@/lib/steam";
-import { DO_NOT_IMPORT, DO_NOT_IMPORT_SLUGS } from "@/lib/denylist";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,15 +23,13 @@ function hasDetailsShape(x: any): boolean {
   return (
     x &&
     typeof x === "object" &&
-    (
-      typeof x.name === "string" ||
+    (typeof x.name === "string" ||
       typeof x.short_description === "string" ||
-      (x.release_date && typeof x.release_date === "object")
-    )
+      (x.release_date && typeof x.release_date === "object"))
   );
 }
 
-/** Accepts any of these shapes and returns a uniform { success, data }:
+/** Accepts any of these shapes and returns a uniform { success, data, shape }:
  *  A) { [appid: string]: { success: boolean; data?: SteamAppDetails|null } }
  *  B) { success: boolean; data?: SteamAppDetails|null }
  *  C) Direct SteamAppDetails object (no success key)
@@ -41,14 +38,14 @@ function hasDetailsShape(x: any): boolean {
 function unwrapDetailsResponse(
   payload: unknown,
   appId: number
-): { success: boolean; data: SteamAppDetails | null } | null {
+): { success: boolean; data: SteamAppDetails | null; shape: "A" | "B" | "C" | "D" | "unknown" } | null {
   if (!payload || typeof payload !== "object") return null;
   const obj = payload as AnyObj;
 
   // Shape B: flat { success, data }
   if (typeof obj.success === "boolean") {
     const data = (obj.data ?? (hasDetailsShape(obj) ? obj : null)) as SteamAppDetails | null;
-    return { success: !!obj.success, data };
+    return { success: !!obj.success, data, shape: "B" };
   }
 
   const key = String(appId);
@@ -57,20 +54,20 @@ function unwrapDetailsResponse(
   // Shape A: envelope keyed by appId with { success, data }
   if (entry && typeof entry === "object" && typeof entry.success === "boolean") {
     const data = (entry.data ?? (hasDetailsShape(entry) ? entry : null)) as SteamAppDetails | null;
-    return { success: !!entry.success, data };
+    return { success: !!entry.success, data, shape: "A" };
   }
 
   // Shape D: envelope keyed by appId directly to details
   if (entry && hasDetailsShape(entry)) {
-    return { success: true, data: entry as SteamAppDetails };
+    return { success: true, data: entry as SteamAppDetails, shape: "D" };
   }
 
   // Shape C: direct details object
   if (hasDetailsShape(obj)) {
-    return { success: true, data: obj as SteamAppDetails };
+    return { success: true, data: obj as SteamAppDetails, shape: "C" };
   }
 
-  return null;
+  return { success: false, data: null, shape: "unknown" };
 }
 
 /** Optional reviews fetch; works even if your module doesn’t export fetchReviewSummary */
@@ -89,26 +86,31 @@ async function tryFetchReviewSummary(appId: number): Promise<ReviewsSummary | nu
 }
 
 /** Core logic used by both GET and POST */
-async function importOne(appId: number): Promise<NextResponse> {
+async function importOne(appId: number, debug = false): Promise<NextResponse> {
   try {
-    // 0) Denylist by appId
-    if (DO_NOT_IMPORT.has(appId)) {
-      return NextResponse.json(
-        { error: "Import skipped", code: "DENYLISTED_APP", details: `appId=${appId}` },
-        { status: 422 }
-      );
-    }
-
     // 1) Fetch Steam details
     const rawDetails = await fetchAppDetails(appId);
     const unwrapped = unwrapDetailsResponse(rawDetails, appId);
 
     if (!unwrapped || !unwrapped.success || !unwrapped.data) {
+      // Small debug blob helps when Steam returns 403/empty
+      const debugBlob =
+        rawDetails && typeof rawDetails === "object"
+          ? {
+              shape: unwrapped?.shape ?? "unknown",
+              topKeys: Object.keys(rawDetails as AnyObj).slice(0, 4),
+              typeofPayload: typeof rawDetails,
+              // Try to surface the inner entry (if present)
+              rawSample: (rawDetails as AnyObj)[String(appId)] ?? null,
+            }
+          : { shape: "unknown", topKeys: [], typeofPayload: typeof rawDetails };
+
       return NextResponse.json(
         {
           error: "Import skipped",
           code: "NO_APPDETAILS",
           details: `Steam appdetails returned no data for appId=${appId}`,
+          debug: debugBlob,
         },
         { status: 422 }
       );
@@ -119,19 +121,9 @@ async function importOne(appId: number): Promise<NextResponse> {
     // 2) Optionally fetch reviews (non-fatal if not available)
     const reviews = await tryFetchReviewSummary(appId);
 
-    // 3) Map to DB fields
+    // 3) Map to DB fields & related vocab
     const gameData = normalizeGame(appId, d, reviews);
-
-    // 3a) Denylist by slug (after mapping)
-    if (DO_NOT_IMPORT_SLUGS.has(gameData.slug)) {
-      return NextResponse.json(
-        { error: "Import skipped", code: "DENYLISTED_SLUG", details: `slug=${gameData.slug}` },
-        { status: 422 }
-      );
-    }
-
-    // Avoid unique-collision on slug: don't change slug during update
-    const { slug, ...updateData } = gameData;
+    const { slug, ...updateData } = gameData; // don't change slug on update
 
     const tagNames = uniqueCanonical(extractTagNamesFromSteam(d));
     const platformNames = uniqueCanonical(extractPlatformNamesFromSteam(d));
@@ -166,8 +158,8 @@ async function importOne(appId: number): Promise<NextResponse> {
       async (tx) => {
         const game = await tx.game.upsert({
           where: { steamAppId: appId },
-          update: { ...updateData },   // no slug on update
-          create: { ...gameData },     // slug set on create
+          update: { ...updateData }, // no slug on update
+          create: { ...gameData }, // slug set on create
         });
 
         if (tags.length) {
@@ -184,8 +176,9 @@ async function importOne(appId: number): Promise<NextResponse> {
           });
         }
 
+        // Refresh screenshots (replace set)
+        await tx.screenshot.deleteMany({ where: { gameId: game.id } });
         if (screenshots.length) {
-          await tx.screenshot.deleteMany({ where: { gameId: game.id } });
           await tx.screenshot.createMany({
             data: screenshots.map((s) => ({ ...s, gameId: game.id })),
           });
@@ -193,6 +186,32 @@ async function importOne(appId: number): Promise<NextResponse> {
       },
       { timeout: 30_000, maxWait: 5_000 }
     );
+
+    // Success
+    if (debug) {
+      return NextResponse.json(
+        {
+          ok: true,
+          debug: {
+            title: gameData.title,
+            steamAppId: appId,
+            headerImageUrl: gameData.headerImageUrl,
+            screenshotsCount: screenshots.length,
+            screenshotsSample: screenshots.slice(0, 4).map((s) => s.imageUrl),
+            tagNames,
+            platformNames,
+            reviews: reviews?.query_summary
+              ? {
+                  label: reviews.query_summary.review_score_desc,
+                  total: reviews.query_summary.total_reviews,
+                  positive: reviews.query_summary.total_positive,
+                }
+              : null,
+          },
+        },
+        { status: 200 }
+      );
+    }
 
     return NextResponse.json({ ok: true }, { status: 200 });
   } catch (err: any) {
@@ -221,17 +240,20 @@ async function importOne(appId: number): Promise<NextResponse> {
   }
 }
 
-/** GET /api/steam/import?appId=220 */
+/** GET /api/steam/import?appId=220[&debug=1] */
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const appId = Number(searchParams.get("appId"));
+  const debug =
+    searchParams.get("debug") === "1" ||
+    searchParams.get("debug") === "true";
   if (!Number.isFinite(appId) || appId <= 0) {
     return NextResponse.json({ error: "Missing or invalid appId" }, { status: 400 });
   }
-  return importOne(appId);
+  return importOne(appId, debug);
 }
 
-/** POST /api/steam/import  body: { appId: 220 } */
+/** POST /api/steam/import  body: { appId: 220, debug?: boolean } */
 export async function POST(req: Request) {
   let body: any = {};
   try {
@@ -240,8 +262,9 @@ export async function POST(req: Request) {
     // ignore
   }
   const appId = Number(body?.appId ?? body?.appid);
+  const debug = !!body?.debug;
   if (!Number.isFinite(appId) || appId <= 0) {
     return NextResponse.json({ error: "Missing or invalid appId" }, { status: 400 });
   }
-  return importOne(appId);
+  return importOne(appId, debug);
 }

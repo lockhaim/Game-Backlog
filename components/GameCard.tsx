@@ -1,69 +1,75 @@
-// components/GameCard.tsx
-"use client";
-
-import Link from "next/link";
 import Image from "next/image";
+import Link from "next/link";
 
-type Props = {
-  game: {
-    slug: string;
-    title: string;
-    headerImageUrl: string | null;
-    reviewPercent: number | null;
-    tags: string[];
-    platforms: string[];
-  };
+type GameCardProps = {
+  slug: string;
+  title: string;
+  headerImageUrl?: string | null;
+  steamReviewLabel?: string | null;
+  steamReviewPercent?: number | null;
+  metacriticScore?: number | null;
+  tags?: string[];
 };
 
-export default function GameCard({ game }: Props) {
+export default function GameCard({
+  slug,
+  title,
+  headerImageUrl,
+  steamReviewLabel,
+  steamReviewPercent,
+  metacriticScore,
+  tags = [],
+}: GameCardProps) {
   return (
     <Link
-      href={`/games/${game.slug}`}
-      className="group rounded-2xl border overflow-hidden hover:shadow-md transition"
+      href={`/games/${slug}`}
+      className="group rounded-2xl overflow-hidden border border-neutral-800 bg-neutral-950 hover:bg-neutral-900/60 transition-colors"
     >
-      <div className="relative w-full aspect-[460/215] bg-gray-100">
-        {game.headerImageUrl ? (
+      <div className="relative h-40 w-full bg-neutral-900">
+        {headerImageUrl ? (
           <Image
-            src={game.headerImageUrl}
-            alt={game.title}
+            src={headerImageUrl}
+            alt={title}
             fill
-            className="object-cover transition-transform group-hover:scale-[1.02]"
-            sizes="(max-width: 1280px) 50vw, 25vw"
+            sizes="(max-width:768px) 100vw, 33vw"
+            className="object-cover group-hover:scale-[1.03] transition-transform duration-300"
             priority={false}
           />
         ) : (
-          <div className="absolute inset-0 grid place-items-center text-gray-400 text-sm">
-            No Image
+          <div className="absolute inset-0 grid place-items-center text-neutral-500">
+            No image
           </div>
         )}
       </div>
-      <div className="p-3 space-y-2">
-        <div className="flex items-center justify-between gap-2">
-          <h3 className="font-medium line-clamp-1">{game.title}</h3>
-          {game.reviewPercent != null && (
-            <span className="text-xs rounded bg-gray-100 px-1.5 py-0.5">
-              {game.reviewPercent}%
+
+      <div className="p-4 space-y-3">
+        <h3 className="text-base font-medium line-clamp-2">{title}</h3>
+
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          {typeof steamReviewPercent === "number" && steamReviewLabel && (
+            <span className="rounded-full border border-emerald-700/50 bg-emerald-900/30 px-2 py-0.5 text-emerald-200">
+              {steamReviewLabel} ({steamReviewPercent}%)
+            </span>
+          )}
+          {typeof metacriticScore === "number" && (
+            <span className="rounded-full border border-sky-700/50 bg-sky-900/30 px-2 py-0.5 text-sky-200">
+              MC {metacriticScore}
             </span>
           )}
         </div>
-        <div className="flex flex-wrap gap-1">
-          {game.platforms.slice(0, 3).map((p) => (
-            <span
-              key={p}
-              className="text-[10px] rounded bg-gray-100 px-1.5 py-0.5"
-            >
-              {p}
-            </span>
-          ))}
-          {game.tags.slice(0, 3).map((t) => (
-            <span
-              key={t}
-              className="text-[10px] rounded border px-1.5 py-0.5"
-            >
-              {t}
-            </span>
-          ))}
-        </div>
+
+        {!!tags?.length && (
+          <div className="flex flex-wrap gap-1.5">
+            {tags.slice(0, 4).map((t) => (
+              <span
+                key={t}
+                className="text-[10px] rounded-full border border-neutral-800 bg-neutral-900 px-2 py-0.5 text-neutral-400"
+              >
+                {t}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
     </Link>
   );
