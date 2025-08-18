@@ -1,69 +1,66 @@
-import Image from "next/image";
+// components/GameCard.tsx
 import Link from "next/link";
+import Image from "next/image";
 
 type GameCardProps = {
-  slug: string;
-  title: string;
-  headerImageUrl?: string | null;
-  steamReviewLabel?: string | null;
-  steamReviewPercent?: number | null;
-  metacriticScore?: number | null;
-  tags?: string[];
+  game: {
+    title: string;
+    slug: string;
+    headerImageUrl: string | null;
+    metacriticScore: number | null;
+    steamReviewPercent: number | null;
+    tags?: string[] | null;
+  };
 };
 
-export default function GameCard({
-  slug,
-  title,
-  headerImageUrl,
-  steamReviewLabel,
-  steamReviewPercent,
-  metacriticScore,
-  tags = [],
-}: GameCardProps) {
+export default function GameCard({ game }: GameCardProps) {
+  const {
+    title,
+    slug,
+    headerImageUrl,
+    metacriticScore,
+    steamReviewPercent,
+  } = game;
+
+  // Be defensive: normalize tags to an array
+  const tags = Array.isArray(game.tags) ? game.tags : [];
+
   return (
     <Link
       href={`/games/${slug}`}
-      className="group rounded-2xl overflow-hidden border border-neutral-800 bg-neutral-950 hover:bg-neutral-900/60 transition-colors"
+      className="group block overflow-hidden rounded-xl border border-gray-200 hover:shadow-md transition-shadow"
     >
-      <div className="relative h-40 w-full bg-neutral-900">
+      <div className="relative h-40 w-full bg-gray-100">
         {headerImageUrl ? (
           <Image
             src={headerImageUrl}
             alt={title}
             fill
-            sizes="(max-width:768px) 100vw, 33vw"
-            className="object-cover group-hover:scale-[1.03] transition-transform duration-300"
+            sizes="(max-width: 768px) 100vw, 33vw"
+            className="object-cover"
             priority={false}
           />
         ) : (
-          <div className="absolute inset-0 grid place-items-center text-neutral-500">
+          <div className="flex h-full w-full items-center justify-center text-gray-400 text-sm">
             No image
           </div>
         )}
       </div>
 
-      <div className="p-4 space-y-3">
-        <h3 className="text-base font-medium line-clamp-2">{title}</h3>
+      <div className="p-3 space-y-2">
+        <h3 className="font-medium leading-tight line-clamp-2">{title}</h3>
 
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          {typeof steamReviewPercent === "number" && steamReviewLabel && (
-            <span className="rounded-full border border-emerald-700/50 bg-emerald-900/30 px-2 py-0.5 text-emerald-200">
-              {steamReviewLabel} ({steamReviewPercent}%)
-            </span>
-          )}
-          {typeof metacriticScore === "number" && (
-            <span className="rounded-full border border-sky-700/50 bg-sky-900/30 px-2 py-0.5 text-sky-200">
-              MC {metacriticScore}
-            </span>
-          )}
+        <div className="text-xs text-gray-600 flex gap-3">
+          {metacriticScore != null && <span>Metacritic: {metacriticScore}</span>}
+          {steamReviewPercent != null && <span>Steam: {steamReviewPercent}%</span>}
         </div>
 
-        {!!tags?.length && (
-          <div className="flex flex-wrap gap-1.5">
-            {tags.slice(0, 4).map((t) => (
+        {tags.length > 0 && (
+          <div className="mt-1 flex flex-wrap gap-1">
+            {tags.slice(0, 3).map((t) => (
               <span
                 key={t}
-                className="text-[10px] rounded-full border border-neutral-800 bg-neutral-900 px-2 py-0.5 text-neutral-400"
+                className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] text-gray-700"
               >
                 {t}
               </span>
