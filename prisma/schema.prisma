@@ -1,171 +1,198 @@
-// prisma/schema.prisma
-// Learn more: https://pris.ly/d/prisma-schema
-
-datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL") // Transaction pooler (runtime)
-  directUrl = env("DIRECT_URL") // Direct (migrations/Studio)
-}
-
 generator client {
   provider = "prisma-client-js"
 }
 
-/**
- * Core user
- */
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+  relationMode = "foreignKeys"
+}
+
+/* -------------------- Enums -------------------- */
+
+enum BacklogStatus {
+  BACKLOG
+  WISHLIST
+  PLAYING
+  PAUSED
+  FINISHED
+  DROPPED
+}
+
+/* -------------------- Core Models -------------------- */
+
 model User {
-  id        String   @id @default(cuid())
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  email     String   @unique
-  name      String?
-  image     String?
+  id              String         @id @default(cuid())
+  email           String         @unique
+  name            String?
+  image           String?
 
-  // Explicit relation name for clarity
-  backlogEntries BacklogEntry[] @relation("UserBacklogEntries")
-  userTags       UserTag[]
+  // Relations
+  backlogEntries  BacklogEntry[] @relation("UserBacklogEntries")
+  userTags        UserTag[]
+
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
 }
 
-/**
- * Game data comes from Steam appdetails/appreviews
- */
 model Game {
-  id        String   @id @default(cuid())
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                  String          @id @default(cuid())
 
-  steamAppId Int     @unique
-  title      String
-  slug       String  @unique
-  summary    String?
+  // Steam linkage
+  steamAppId          Int?            @unique
+  slug                String          @unique
 
-  headerImageUrl String? // cover/banner
-  heroCapsuleUrl String? // optional larger hero image
+  // Display / metadata
+  title               String
+  summary             String?
+  headerImageUrl      String?
+  capsuleImageUrl     String?
 
-  developerName String?
-  publisherName String?
-  releaseDate   DateTime?
+  // Release / reviews
+  releaseDate         DateTime?
+  comingSoon          Boolean?        @default(false)
+  metacriticScore     Int?
+  steamReviewPercent  Int?
+  steamReviewCount    Int?
+  steamReviewLabel   String?  @db.VarChar(64)
 
-  metacriticScore    Int? // from Steam if present
-  steamReviewPercent Int? // 0–100
-  steamReviewCount   Int? // total review count
-  steamReviewLabel   String? // e.g., "Very Positive"
+  // “Recently played”
+  playtimeMinutes     Int?            // lifetime minutes from Steam (optional)
+  lastPlayedAt        DateTime?       // last_played -> Date
 
-  reviewSnippets ReviewSnippet[]
-  screenshots    Screenshot[]
-  tags           GameTag[]
-  platforms      GamePlatform[]
-  backlogEntries BacklogEntry[]
+  // Relations
+  tags                GameTag[]
+  platforms           GamePlatform[]
+  screenshots         Screenshot[]
+  reviewSnippets      ReviewSnippet[]
+  backlogEntries      BacklogEntry[]  @relation("GameBacklogEntries")
+
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+
+  @@index([releaseDate])
+  @@index([lastPlayedAt])
+  @@index([steamReviewPercent, steamReviewCount])
 }
 
-/**
- * Screenshot carousel (ordered)
- */
+/* -------------------- Vocab Models -------------------- */
+
+model Tag {
+  id      String     @id @default(cuid())
+  name    String     @unique
+  label   String?
+
+  games   GameTag[]
+}
+
+model Platform {
+  id      String     @id @default(cuid())
+  name    String     @unique
+  label   String?
+
+  games   GamePlatform[]
+}
+
+/* -------------------- Join Tables -------------------- */
+
+model GameTag {
+  gameId  String
+  tagId   String
+
+  game    Game @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  tag     Tag  @relation(fields: [tagId],  references: [id], onDelete: Cascade)
+
+  @@id([gameId, tagId])
+  @@unique([gameId, tagId])
+  @@index([tagId])
+}
+
+model GamePlatform {
+  gameId     String
+  platformId String
+
+  game       Game     @relation(fields: [gameId],     references: [id], onDelete: Cascade)
+  platform   Platform @relation(fields: [platformId], references: [id], onDelete: Cascade)
+
+  @@id([gameId, platformId])
+  @@unique([gameId, platformId])
+  @@index([platformId])
+}
+
+/* -------------------- Media / Reviews -------------------- */
+
 model Screenshot {
   id           String   @id @default(cuid())
-  createdAt    DateTime @default(now())
-  game         Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
   gameId       String
+  sortIndex    Int      @default(0)
   imageUrl     String
   thumbnailUrl String?
-  sortIndex    Int      @default(0)
+
+  game         Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   @@index([gameId, sortIndex])
 }
 
-/**
- * Optional: small review snippets (can skip if you only want aggregates)
- */
 model ReviewSnippet {
-  id           String    @id @default(cuid())
-  createdAt    DateTime  @default(now())
-  game         Game      @relation(fields: [gameId], references: [id], onDelete: Cascade)
-  gameId       String
-  language     String? // e.g., "english"
-  votedHelpful Int? // helpful votes
-  reviewText   String // keep short, or truncate upstream
-  timestamp    DateTime?
-}
-
-/**
- * Taxonomy: tags/genres, platforms
- */
-model Tag {
-  id    String    @id @default(cuid())
-  name  String    @unique
-  games GameTag[]
-}
-
-model GameTag {
-  id     String @id @default(cuid())
-  game   Game   @relation(fields: [gameId], references: [id], onDelete: Cascade)
-  gameId String
-  tag    Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
-  tagId  String
-
-  @@unique([gameId, tagId])
-}
-
-model Platform {
-  id    String         @id @default(cuid())
-  name  String         @unique
-  games GamePlatform[]
-}
-
-model GamePlatform {
-  id         String   @id @default(cuid())
-  game       Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
-  gameId     String
-  platform   Platform @relation(fields: [platformId], references: [id], onDelete: Cascade)
-  platformId String
-
-  @@unique([gameId, platformId])
-}
-
-/**
- * Your personal backlog row per game
- */
-model BacklogEntry {
   id        String   @id @default(cuid())
+  gameId    String
+  source    String?  // e.g. "PC Gamer", "IGN"
+  quote     String
+  url       String?
+
+  game      Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // Explicit relation name MUST match User.backlogEntries
-  user   User   @relation("UserBacklogEntries", fields: [userId], references: [id], onDelete: Cascade)
-  userId String
+  @@index([gameId])
+}
 
-  game   Game   @relation(fields: [gameId], references: [id], onDelete: Cascade)
-  gameId String
+/* -------------------- Backlog / User Data -------------------- */
 
-  backlogStatus BacklogStatus
-  userRating    Int?
-  userNotes     String?
-  priority      Int? // optional: 1 (high) .. 5 (low), etc.
-  category      String? // optional: free-text category; switch to enum/table later if desired
+model BacklogEntry {
+  id            String        @id @default(cuid())
+
+  userId        String
+  gameId        String
+
+  status        BacklogStatus @default(BACKLOG)
+  priority      Int?          // 1..5 or any scale you like
+  category      String?       // free-text or enum later (e.g., “Story”, “Multiplayer”)
+  notes         String?
+
+  // Optional per-user timing
   startedAt     DateTime?
   finishedAt    DateTime?
-  hoursPlayed   Int?
+  lastSessionAt DateTime?
 
-  @@unique([userId, gameId]) // one entry per user per game
+  user          User          @relation("UserBacklogEntries", fields: [userId], references: [id], onDelete: Cascade)
+  game          Game          @relation("GameBacklogEntries", fields: [gameId], references: [id], onDelete: Cascade)
+
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@unique([userId, gameId])   // one entry per user/game
+  @@index([status, priority])
+  @@index([userId])
+  @@index([gameId])
 }
 
-/**
- * Per-user custom tags (for autosuggest or personal labels)
- */
 model UserTag {
-  id     String @id @default(cuid())
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId String
-  name   String
+  id        String   @id @default(cuid())
+  userId    String
+  name      String   // e.g. “Backlog 2025”, “Co-op”, “JRPG”
+  color     String?  // hex or token for UI
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([userId, name])
-}
-
-enum BacklogStatus {
-  WISHLIST
-  PLAYING
-  PAUSED
-  DROPPED
-  FINISHED
+  @@index([userId])
 }
