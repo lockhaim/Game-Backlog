@@ -1,7 +1,41 @@
 /* app/globals.css */
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
-/* optional tweaks */
-:root { color-scheme: light; }
+/* Dark baseline */
+:root {
+  color-scheme: dark;
+
+  /* core palette (override via data-accent / data-theme) */
+  --bg:        #0b0b0e; /* zinc-950 */
+  --fg:        #e4e4e7; /* zinc-200 */
+  --muted:     #a1a1aa; /* zinc-400 */
+  --card:      #111113; /* near zinc-950 */
+  --border:    #27272a; /* zinc-800 */
+  --accent:    #818cf8; /* indigo-400 (default) */
+  --accent-2:  #3730a3; /* indigo-800 */
+  --ring:      color-mix(in oklab, var(--accent), transparent 70%);
+}
+
+/* optional alternate “themes” (you can add more) */
+[data-accent="violet"]  { --accent:#8b5cf6; --accent-2:#4c1d95; }
+[data-accent="indigo"]  { --accent:#818cf8; --accent-2:#3730a3; }
+[data-accent="emerald"] { --accent:#34d399; --accent-2:#065f46; }
+[data-accent="rose"]    { --accent:#fb7185; --accent-2:#9f1239; }
+
+html, body { height: 100%; }
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+}
+
+/* tiny base polish */
+::selection {
+  background: var(--accent);
+  color: black;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

@@ -1,34 +1,18 @@
 // app/games/[slug]/page.tsx
 import Image from "next/image";
-import Link from "next/link";
-import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import ScreenshotCarousel from "@/components/ScreenshotCarousel";
 
-export const dynamic = "force-dynamic";
+type PageProps = {
+  params: Promise<{ slug: string }>; // Next 15 dynamic params are async
+};
 
-type Params = { slug: string };
-
-function formatDate(d?: Date | null) {
-  if (!d) return "-";
-  try {
-    return new Intl.DateTimeFormat("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    }).format(d);
-  } catch {
-    return d.toString();
-  }
+async function getParams(p: PageProps["params"]) {
+  return await p;
 }
 
-export default async function GamePage({
-  params,
-}: {
-  params: Promise<Params>;
-}) {
-  // Next.js (App Router) requires awaiting dynamic params in RSC
-  const { slug } = await params;
+export default async function GamePage({ params }: PageProps) {
+  const { slug } = await getParams(params);
 
   const game = await prisma.game.findUnique({
     where: { slug },
@@ -40,112 +24,83 @@ export default async function GamePage({
   });
 
   if (!game) {
-    notFound();
+    return (
+      <div className="space-y-2">
+        <h1 className="text-2xl font-semibold title-accent">Not found</h1>
+        <p className="text-[hsl(var(--muted))]">This game doesn’t exist.</p>
+      </div>
+    );
   }
 
-  const tagNames = game.tags.map((t) => t.tag.name);
-  const platformNames = game.platforms.map((p) => p.platform.name);
-
   return (
-    <div className="mx-auto max-w-5xl px-4 py-6 space-y-6">
-      <div className="flex items-center justify-between gap-4">
-        <h1 className="text-2xl md:text-3xl font-semibold">{game.title}</h1>
-        <Link
-          href="/games"
-          className="text-sm rounded px-3 py-1 border hover:bg-gray-50"
-        >
-          ← All games
-        </Link>
-      </div>
-
-      {/* Header art (if present) */}
-      {game.headerImageUrl && (
-        <div className="overflow-hidden rounded border bg-black/5">
-          <Image
-            src={game.headerImageUrl}
-            alt={`${game.title} header`}
-            width={1200}
-            height={450}
-            className="w-full h-auto object-cover"
-            priority
-            unoptimized
-          />
-        </div>
-      )}
-
-      {/* Meta / summary */}
-      <div className="grid md:grid-cols-3 gap-6">
-        <div className="md:col-span-2 space-y-4">
-          {game.summary && (
-            <p className="text-gray-700 leading-relaxed">{game.summary}</p>
-          )}
-
-          {/* Platforms */}
-          {platformNames.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {platformNames.map((p) => (
-                <span
-                  key={p}
-                  className="text-xs uppercase tracking-wide px-2 py-1 rounded bg-gray-100 border"
-                >
-                  {p}
-                </span>
-              ))}
-            </div>
-          )}
-
-          {/* Tags */}
-          {tagNames.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {tagNames.map((t) => (
-                <span
-                  key={t}
-                  className="text-xs px-2 py-1 rounded border bg-white"
-                >
-                  {t}
-                </span>
-              ))}
+    <div className="space-y-8">
+      {/* HERO */}
+      <section className="card overflow-hidden">
+        <div className="relative aspect-[21/9] w-full">
+          {game.headerImageUrl ? (
+            <>
+              <Image
+                src={game.headerImageUrl}
+                alt={game.title}
+                fill
+                sizes="100vw"
+                className="object-cover"
+                priority
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent" />
+            </>
+          ) : (
+            <div className="absolute inset-0 grid place-items-center text-[hsl(var(--muted))]">
+              No image
             </div>
           )}
         </div>
 
-        <aside className="space-y-2 text-sm">
-          <div className="grid grid-cols-2 gap-x-3 gap-y-1">
-            <div className="text-gray-500">Released</div>
-            <div>{formatDate(game.releaseDate)}</div>
+        <div className="p-6">
+          <h1 className="text-3xl font-semibold title-accent">{game.title}</h1>
 
-            <div className="text-gray-500">Metacritic</div>
-            <div>{game.metacriticScore ?? "-"}</div>
-
-            <div className="text-gray-500">Steam Reviews</div>
-            <div>
-              {game.steamReviewLabel || "-"}
-              {typeof game.steamReviewPercent === "number" && (
-                <> ({game.steamReviewPercent}%)</>
-              )}
-            </div>
-
-            <div className="text-gray-500">Total Reviews</div>
-            <div>{game.steamReviewCount ?? "-"}</div>
-
-            <div className="text-gray-500">Steam AppID</div>
-            <div>{game.steamAppId}</div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {game.metacriticScore != null && (
+              <span className="badge badge-purple">MC {game.metacriticScore}</span>
+            )}
+            {game.steamReviewPercent != null && (
+              <span className="badge badge-purple">{game.steamReviewPercent}% positive</span>
+            )}
+            {game.platforms.map((p) => (
+              <span key={p.platformId} className="badge">
+                {p.platform.name.toLowerCase()}
+              </span>
+            ))}
           </div>
-        </aside>
-      </div>
 
-      {/* Screenshot count (sanity check) */}
-      <p className="text-xs opacity-70">
-        {game.screenshots.length} screenshots (from DB)
-      </p>
+          {game.summary && (
+            <p className="mt-4 text-[hsl(var(--muted))] leading-relaxed">{game.summary}</p>
+          )}
 
-      {/* Carousel */}
-      <ScreenshotCarousel
-        shots={game.screenshots.map((s) => ({
-          imageUrl: s.imageUrl,
-          thumbnailUrl: s.thumbnailUrl,
-        }))}
-      />
+          {game.tags.length > 0 && (
+            <div className="mt-4 flex flex-wrap gap-2">
+              {game.tags.map((t) => (
+                <span key={t.tagId} className="badge">
+                  {t.tag.name.toLowerCase()}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* SCREENSHOTS */}
+      {game.screenshots.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-xl font-semibold">Screenshots</h2>
+          <ScreenshotCarousel
+            shots={game.screenshots.map((s) => ({
+              imageUrl: s.imageUrl,
+              thumbnailUrl: s.thumbnailUrl,
+            }))}
+          />
+        </section>
+      )}
     </div>
   );
 }
