@@ -196,3 +196,12 @@ model UserTag {
   @@unique([userId, name])
   @@index([userId])
 }
+
+model BacklogEntryTag {
+  backlogEntryId String
+  userTagId      String
+  backlogEntry   BacklogEntry @relation(fields: [backlogEntryId], references: [id], onDelete: Cascade)
+  userTag        UserTag      @relation(fields: [userTagId],      references: [id], onDelete: Cascade)
+  @@id([backlogEntryId, userTagId])
+  @@index([userTagId])
+}

@@ -1,16 +1,21 @@
+// lib/prisma.ts
 import { PrismaClient } from "@prisma/client";
 
-const globalForPrisma = global as unknown as { prisma?: PrismaClient };
+// Keep a single client across HMR in dev
+const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
-// In dev, force Prisma to use DIRECT_URL; in prod, use pooled DATABASE_URL
+// In dev, prefer DIRECT_URL (non-pooled) for faster local queries.
+// In prod, leave DATABASE_URL (pooled) alone.
 if (process.env.NODE_ENV !== "production" && process.env.DIRECT_URL) {
+  // Safe to set before instantiation; Prisma reads env at construction time.
   process.env.DATABASE_URL = process.env.DIRECT_URL;
 }
 
 export const prisma =
   globalForPrisma.prisma ??
   new PrismaClient({
-    log: ["error", "warn"], // add "query" if you like
+    // keep logs light by default; add "query" when debugging
+    log: process.env.NODE_ENV === "development" ? ["warn", "error"] : ["error"],
   });
 
 if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
